@@ -164,8 +164,15 @@ Stockio/
 │       └── main.go
 ├── internal/
 │   ├── config/
+│   │   └── config.go
 │   ├── contracts/
+│   │   ├── candle.go
+│   │   ├── envelope.go
+│   │   ├── heartbeat.go
+│   │   ├── recommendation.go
+│   │   └── registration.go
 │   ├── httpapi/
+│   │   └── health.go
 │   └── strategy/
 ├── docs/
 │   └── project-description.md
