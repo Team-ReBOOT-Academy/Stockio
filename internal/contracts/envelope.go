@@ -1,7 +1,7 @@
 package contracts
 
 type Envelope struct {
-	EventID       string      `json:"eventID"`
+	EventID       string      `json:"eventId"`
 	EventType     string      `json:"eventType"`
 	SchemaVersion string      `json:"schemaVersion"`
 	OccurredAt    string      `json:"occurredAt"`
