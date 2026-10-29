@@ -62,6 +62,18 @@ momentum = close[t] / close[t-N] - 1
 APP_NAME
 APP_VERSION
 HTTP_PORT
+KAFKA_BOOTSTRAP_SERVERS
+KAFKA_USERNAME
+KAFKA_PASSWORD
+KAFKA_GROUP_ID
+CANDLE_TOPIC
+SECRET_KEY
+ACCOUNT_ID
+ACCOUNT_NAME
+GROUP_ID
+STRATEGY_ID
+STRATEGY_NAME
+SERVICE_NAME
 ```
 
 Пример конфигурации находится в:
@@ -149,6 +161,12 @@ docker build -t stockio -f deploy/Dockerfile .
 docker run --rm -p 8080:8080 stockio
 ```
 
+Перед подключением к учебной платформе передайте значения окружения через защищенное хранилище или локальный `.env` (не коммитьте его):
+
+```bash
+docker run --rm --env-file .env -p 8080:8080 stockio
+```
+
 После запуска проверить:
 
 ```bash
@@ -163,22 +181,38 @@ Stockio/
 │   └── server/
 │       └── main.go
 ├── internal/
-│   ├── config/
-│   │   └── config.go
+│   ├── infrastructure/
+│   │   ├── config/
+│   │   └── kafka/
 │   ├── contracts/
 │   │   ├── candle.go
 │   │   ├── envelope.go
 │   │   ├── heartbeat.go
 │   │   ├── recommendation.go
 │   │   └── registration.go
-│   ├── httpapi/
-│   │   └── health.go
-│   └── strategy/
+│   ├── domain/
+│   │   └── strategy/
+│   └── interfaces/
+│       └── httpapi/
 ├── docs/
+│   ├── diagrams/
 │   └── project-description.md
 ├── .env.example
 ├── .gitignore
-├── Dockerfile
+├── deploy/Dockerfile
 ├── README.md
 └── go.mod
 ```
+
+## Внешние взаимодействия
+
+Сервис подключается к выданному преподавателем Kafka broker (`SASL_SSL` / `SCRAM-SHA-256`), регистрирует стабильные идентификаторы, читает `market.candle.closed`, публикует `strategy.recommendation.created` и отправляет heartbeat каждые пять секунд после регистрации. В первом интеграционном этапе ответ стратегии — `HOLD`. Уникальный `KAFKA_GROUP_ID` нужен каждому сервису, а `CANDLE_TOPIC` и секреты предоставляются преподавателем.
+
+## Архитектурные схемы
+
+* Контекст: [`docs/diagrams/context.puml`](docs/diagrams/context.puml)
+* Компоненты: [`docs/diagrams/components.mmd`](docs/diagrams/components.mmd)
+
+## План работ
+
+План работ следует вести в выбранной системе управления задачами и добавить сюда ссылку после создания проекта. Минимальные задачи: подключение Kafka; регистрация; прием и логирование свечи; публикация `HOLD`; последующая реализация Momentum. Для каждой задачи указываются ожидаемый результат и проверяемые критерии готовности. Ссылка на внешний проект задач является открытым пунктом, поскольку конкретный проект не предоставлен.
