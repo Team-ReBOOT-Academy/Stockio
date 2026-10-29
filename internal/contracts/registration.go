@@ -2,9 +2,9 @@ package contracts
 
 type RegistrationRequest struct {
 	SecretKey    string `json:"secretKey"`
-	AccountId    string `json:"accountId"`
+	AccountID    string `json:"accountId"`
 	AccountName  string `json:"accountName"`
-	GroupId      string `json:"groupId"`
+	GroupID      string `json:"groupId"`
 	StrategyID   string `json:"strategyId"`
 	StrategyName string `json:"strategyName"`
 	ServiceName  string `json:"serviceName"`
@@ -12,6 +12,10 @@ type RegistrationRequest struct {
 }
 
 type RegistrationResult struct {
+	SecretKey   string `json:"secretKey"`
+	AccountID   string `json:"accountId"`
+	GroupID     string `json:"groupId"`
+	StrategyID  string `json:"strategyId"`
 	ServiceName string `json:"serviceName"`
 	Correlation string `json:"correlation"`
 	Status      string `json:"status"`
