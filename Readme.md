@@ -65,11 +65,16 @@ docker run --rm --env-file .env -p 8080:8080 stockio
 
 ```text
 cmd/server/             запуск процесса и сборка компонентов
-internal/config/        загрузка окружения
-internal/health/        HTTP endpoint и health статусы
-internal/kafka/         TLS/SCRAM клиент и consumer group
-internal/messaging/     Kafka envelope и payload типы
-internal/strategy/      регистрация, heartbeat, HOLD и обработка результатов
+internal/domain/strategy/               доменные сигналы
+internal/application/service/           регистрация, свечи и heartbeat
+internal/application/ports/             порты брокера и health состояния
+internal/application/contracts/         модели событий платформы
+internal/adapters/kafka/                Kafka клиент
+internal/adapters/http/health/          HTTP health сервер
+internal/adapters/config/               переменные окружения
+internal/adapters/logging/              структурированные журналы
 docs/project-description.md
 docs/diagrams/
 ```
+
+`cmd/server` — точка сборки приложения. Use case зависит от интерфейсов из `application/ports`; Kafka и health adapters реализуют эти интерфейсы. Поэтому замена брокера или HTTP реализации не требует менять сценарий регистрации и обработки свечей.

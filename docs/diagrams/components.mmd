@@ -2,24 +2,34 @@ flowchart LR
   Platform[Преподавательская платформа]
   Kafka[(Внешний Kafka broker)]
   subgraph Stockio[Stockio strategy service]
-    HTTP[HTTP health endpoint]
-    Config[Environment configuration]
-    Runtime[Go service runtime]
-    Registration[Registration and heartbeat]
-    Consumer[Kafka candle and result consumers]
-    Strategy[HOLD response stage; Momentum planned]
-    Publisher[Recommendation publisher]
-    State[(Runtime counters and sequence status)]
+    subgraph Adapters[Внешние адаптеры]
+      Config[Чтение переменных окружения]
+      KafkaAdapter[Kafka adapter]
+      HTTP[HTTP health adapter]
+    end
+    subgraph Application[Слой приложения]
+      UseCase[Strategy service use case]
+      BrokerPort[Broker port]
+      HealthPort[Health port]
+      Contracts[Event contracts]
+    end
+    subgraph Domain[Домен]
+      Signal[Signal HOLD]
+    end
   end
   Market[Market data publisher]
+  Developer[Разработчик]
   Platform -->|settings and provisioned topics| Kafka
   Market -->|market.candle.closed| Kafka
-  Kafka -->|registration / recommendation results| Consumer
-  Kafka -->|market.candle.closed| Consumer
-  Consumer --> Strategy
-  Strategy --> State
-  Strategy --> Publisher
-  Registration -->|account.registration.request / heartbeat| Kafka
-  Publisher -->|strategy.recommendation.created| Kafka
-  HTTP -->|GET /health| Runtime
-  Config --> Runtime
+  Kafka -->|свечи и результаты| KafkaAdapter
+  KafkaAdapter --> BrokerPort
+  BrokerPort --> UseCase
+  UseCase --> Contracts
+  UseCase --> Signal
+  UseCase --> BrokerPort
+  BrokerPort -->|регистрация, heartbeat, HOLD| KafkaAdapter
+  KafkaAdapter --> Kafka
+  Config -->|настройки| UseCase
+  HTTP --> HealthPort
+  UseCase --> HealthPort
+  HTTP -->|GET /health| Developer

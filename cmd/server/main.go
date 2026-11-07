@@ -10,14 +10,15 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/Team-ReBOOT-Academy/Stockio/internal/config"
-	"github.com/Team-ReBOOT-Academy/Stockio/internal/health"
-	kafkaclient "github.com/Team-ReBOOT-Academy/Stockio/internal/kafka"
-	"github.com/Team-ReBOOT-Academy/Stockio/internal/strategy"
+	"github.com/Team-ReBOOT-Academy/Stockio/internal/adapters/config"
+	"github.com/Team-ReBOOT-Academy/Stockio/internal/adapters/http/health"
+	kafkaclient "github.com/Team-ReBOOT-Academy/Stockio/internal/adapters/kafka"
+	"github.com/Team-ReBOOT-Academy/Stockio/internal/adapters/logging"
+	"github.com/Team-ReBOOT-Academy/Stockio/internal/application/service"
 )
 
 func main() {
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	logger := logging.New()
 	slog.SetDefault(logger)
 
 	cfg, err := config.Load()
@@ -47,24 +48,13 @@ func main() {
 		}
 	}()
 
-	assignedCh := make(chan struct{}, 1)
-	onAssigned := func(assigned map[string][]int32) {
-		if len(assigned[cfg.TopicRegistrationResult]) == 0 {
-			return
-		}
-		select {
-		case assignedCh <- struct{}{}:
-		default:
-		}
-	}
-
 	client, err := kafkaclient.New(kafkaclient.Options{
-		Brokers:    cfg.KafkaBootstrap,
-		Username:   cfg.KafkaUsername,
-		Password:   cfg.KafkaPassword,
-		GroupID:    cfg.KafkaGroupID,
-		Topics:     []string{cfg.CandleTopic, cfg.TopicRegistrationResult, cfg.TopicRecommendationResult},
-		OnAssigned: onAssigned,
+		Brokers:                 cfg.KafkaBootstrap,
+		Username:                cfg.KafkaUsername,
+		Password:                cfg.KafkaPassword,
+		GroupID:                 cfg.KafkaGroupID,
+		Topics:                  []string{cfg.CandleTopic, cfg.TopicRegistrationResult, cfg.TopicRecommendationResult},
+		RegistrationResultTopic: cfg.TopicRegistrationResult,
 	})
 	if err != nil {
 		logger.Error("kafka client init failed", "error", err)
@@ -72,7 +62,7 @@ func main() {
 	}
 	defer client.Close()
 
-	svc := strategy.New(cfg, client, tracker, logger, assignedCh)
+	svc := service.New(cfg.Settings, client, tracker, logger)
 
 	if err := svc.Run(runCtx); err != nil {
 		logger.Error("strategy run failed", "error", err)

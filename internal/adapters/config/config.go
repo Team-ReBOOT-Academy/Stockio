@@ -4,32 +4,17 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	"github.com/Team-ReBOOT-Academy/Stockio/internal/application"
 )
 
 type Config struct {
+	application.Settings
 	KafkaBootstrap []string
 	KafkaUsername  string
 	KafkaPassword  string
 	KafkaGroupID   string
-
-	TopicRegistrationRequest  string
-	TopicRegistrationResult   string
-	TopicHeartbeat            string
-	TopicRecommendationCreate string
-	TopicRecommendationResult string
-	CandleTopic               string
-
-	AccountSecretKey string
-	AccountID        string
-	AccountName      string
-	GroupID          string
-	StrategyID       string
-	StrategyName     string
-	ServiceName      string
-	Description      string
-
-	HTTPAddr string
-	Version  string
+	HTTPAddr       string
 }
 
 func Load() (Config, error) {
@@ -38,7 +23,9 @@ func Load() (Config, error) {
 		KafkaUsername:  strings.TrimSpace(os.Getenv("KAFKA_USERNAME")),
 		KafkaPassword:  strings.TrimSpace(os.Getenv("KAFKA_PASSWORD")),
 		KafkaGroupID:   strings.TrimSpace(os.Getenv("KAFKA_GROUP_ID")),
-
+		HTTPAddr:       getenv("HTTP_ADDR", ":"+getenv("HTTP_PORT", "8080")),
+	}
+	cfg.Settings = application.Settings{
 		TopicRegistrationRequest:  getenv("KAFKA_REGISTRATION_TOPIC", "account.registration.request"),
 		TopicRegistrationResult:   getenv("KAFKA_REGISTRATION_RESULT_TOPIC", "account.registration.result"),
 		TopicHeartbeat:            getenv("KAFKA_HEARTBEAT_TOPIC", "account.service.heartbeat"),
@@ -54,9 +41,7 @@ func Load() (Config, error) {
 		StrategyName:     strings.TrimSpace(os.Getenv("STRATEGY_NAME")),
 		ServiceName:      strings.TrimSpace(os.Getenv("SERVICE_NAME")),
 		Description:      getenv("DESCRIPTION", "Stockio strategy service"),
-
-		HTTPAddr: getenv("HTTP_ADDR", ":"+getenv("HTTP_PORT", "8080")),
-		Version:  getenv("APP_VERSION", "1.0.0"),
+		Version:          getenv("APP_VERSION", "1.0.0"),
 	}
 	if len(cfg.KafkaBootstrap) == 0 {
 		return Config{}, fmt.Errorf("KAFKA_BOOTSTRAP_SERVERS must contain at least one broker")
