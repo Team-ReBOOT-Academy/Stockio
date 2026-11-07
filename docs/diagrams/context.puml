@@ -1,0 +1,26 @@
+@startuml Stockio_Context
+left to right direction
+skinparam componentStyle rectangle
+
+title Stockio - system context
+
+actor Developer as dev
+actor Teacher as teacher
+rectangle "Stockio strategy service" as stockio {
+  component "HTTP health API\nGET /health" as health
+  component "Kafka adapter and\nHOLD response stage" as service
+}
+rectangle "Учебная платформа" as platform
+queue "Внешний Kafka broker\nomsu.7bits.it:9094" as kafka
+rectangle "Источник рыночных данных" as market
+
+dev --> stockio : настраивает и запускает
+dev --> health : проверяет состояние / HTTP
+teacher --> platform : управляет аккаунтами, группами и запусками
+market --> kafka : публикует market.candle.closed
+platform --> kafka : предоставляет темы и обрабатывает события
+kafka --> service : свечи и результаты
+service --> kafka : регистрация, heartbeat, рекомендации HOLD
+kafka --> platform : события сервиса и рекомендации
+
+@enduml

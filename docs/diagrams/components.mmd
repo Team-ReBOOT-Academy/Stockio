@@ -1,0 +1,25 @@
+flowchart LR
+  Platform[Преподавательская платформа]
+  Kafka[(Внешний Kafka broker)]
+  subgraph Stockio[Stockio strategy service]
+    HTTP[HTTP health endpoint]
+    Config[Environment configuration]
+    Runtime[Go service runtime]
+    Registration[Registration and heartbeat]
+    Consumer[Kafka candle and result consumers]
+    Strategy[HOLD response stage; Momentum planned]
+    Publisher[Recommendation publisher]
+    State[(Runtime counters and sequence status)]
+  end
+  Market[Market data publisher]
+  Platform -->|settings and provisioned topics| Kafka
+  Market -->|market.candle.closed| Kafka
+  Kafka -->|registration / recommendation results| Consumer
+  Kafka -->|market.candle.closed| Consumer
+  Consumer --> Strategy
+  Strategy --> State
+  Strategy --> Publisher
+  Registration -->|account.registration.request / heartbeat| Kafka
+  Publisher -->|strategy.recommendation.created| Kafka
+  HTTP -->|GET /health| Runtime
+  Config --> Runtime

@@ -1,11 +1,14 @@
-FROM golang:1.26.5 AS builder
+FROM golang:1.23-alpine AS builder
 WORKDIR /src
-COPY go.mod go.sum ./
+RUN apk add --no-cache git
+COPY go.mod go.sum* ./
 RUN go mod download
 COPY . .
-RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/stockio ./cmd/server
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -o /out/server ./cmd/server
 
-FROM gcr.io/distroless/static-debian12:nonroot
-COPY --from=builder /out/stockio /stockio
+FROM alpine:3.19
+RUN apk add --no-cache ca-certificates tzdata && adduser -D -H app
+COPY --from=builder /out/server /server
+USER app
 EXPOSE 8080
-ENTRYPOINT ["/stockio"]
+ENTRYPOINT ["/server"]

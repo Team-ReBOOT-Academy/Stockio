@@ -1,14 +1,16 @@
-module github.com/Team-ReBOOT-Academy/Stockio.git
+module github.com/Team-ReBOOT-Academy/Stockio
 
-go 1.26.5
+go 1.23
 
 require (
 	github.com/google/uuid v1.6.0
-	github.com/twmb/franz-go v1.22.2
+	github.com/twmb/franz-go v1.18.0
+	golang.org/x/sync v0.10.0
 )
 
 require (
-	github.com/klauspost/compress v1.20.3 // indirect
-	github.com/pierrec/lz4/v4 v4.1.33 // indirect
-	github.com/twmb/franz-go/pkg/kmsg v1.15.0 // indirect
+	github.com/klauspost/compress v1.17.8 // indirect
+	github.com/pierrec/lz4/v4 v4.1.21 // indirect
+	github.com/twmb/franz-go/pkg/kmsg v1.9.0 // indirect
+	golang.org/x/crypto v0.23.0 // indirect
 )
