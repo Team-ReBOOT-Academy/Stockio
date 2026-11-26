@@ -3,80 +3,147 @@ package kafka
 import (
 	"context"
 	"crypto/tls"
+	"encoding/json"
+	"fmt"
+	"log/slog"
 	"time"
+
+	"github.com/Team-ReBOOT-Academy/Stockio/internal/config"
+	"github.com/Team-ReBOOT-Academy/Stockio/internal/domain"
 
 	"github.com/twmb/franz-go/pkg/kgo"
 	"github.com/twmb/franz-go/pkg/sasl/scram"
-
-	"github.com/Team-ReBOOT-Academy/Stockio/internal/application/ports"
 )
 
-type Options struct {
-	Brokers                 []string
-	Username                string
-	Password                string
-	GroupID                 string
-	Topics                  []string
-	RegistrationResultTopic string
-}
-
 type Client struct {
-	client   *kgo.Client
-	assigned chan struct{}
+	producer *kgo.Client
+	consumer *kgo.Client
+	logger   *slog.Logger
+	records  map[string]*kgo.Record
+	assigned chan map[string][]int32
 }
 
-func New(opts Options) (*Client, error) {
-	assigned := make(chan struct{}, 1)
-	client, err := kgo.NewClient(
-		kgo.SeedBrokers(opts.Brokers...),
-		kgo.DialTLSConfig(&tls.Config{MinVersion: tls.VersionTLS12}),
-		kgo.SASL(scram.Auth{User: opts.Username, Pass: opts.Password}.AsSha256Mechanism()),
-		kgo.ConsumerGroup(opts.GroupID),
-		kgo.ConsumeTopics(opts.Topics...),
+func NewClient(cfg *config.Config, logger *slog.Logger) (*Client, error) {
+	saslOpt := kgo.SASL(scram.Auth{
+		User: cfg.KafkaUsername,
+		Pass: cfg.KafkaPassword,
+	}.AsSha256Mechanism())
+	tlsOpt := kgo.DialTLSConfig(&tls.Config{MinVersion: tls.VersionTLS12})
+
+	producer, err := kgo.NewClient(
+		kgo.SeedBrokers(cfg.KafkaBrokers),
+		saslOpt,
+		tlsOpt,
+		kgo.DialTimeout(10*time.Second),
+		kgo.ProducerBatchCompression(kgo.GzipCompression()),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create kafka producer: %w", err)
+	}
+
+	assigned := make(chan map[string][]int32, 1)
+	consumer, err := kgo.NewClient(
+		kgo.SeedBrokers(cfg.KafkaBrokers),
+		saslOpt,
+		tlsOpt,
+		kgo.DialTimeout(10*time.Second),
+		kgo.ConsumerGroup(cfg.KafkaGroupID),
+		kgo.ConsumeTopics(cfg.CandleTopic, cfg.RegistrationResultTopic, cfg.RecommendationResultTopic),
 		kgo.ConsumeResetOffset(kgo.NewOffset().AtStart()),
-		kgo.AutoCommitMarks(),
-		kgo.OnPartitionsAssigned(func(_ context.Context, _ *kgo.Client, assignment map[string][]int32) {
-			if len(assignment[opts.RegistrationResultTopic]) == 0 {
-				return
-			}
+		kgo.DisableAutoCommit(),
+		kgo.OnPartitionsAssigned(func(_ context.Context, _ *kgo.Client, partitions map[string][]int32) {
 			select {
-			case assigned <- struct{}{}:
+			case assigned <- partitions:
 			default:
 			}
 		}),
 	)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to create kafka consumer: %w", err)
 	}
-	return &Client{client: client, assigned: assigned}, nil
+
+	return &Client{
+		producer: producer,
+		consumer: consumer,
+		logger:   logger,
+		records:  make(map[string]*kgo.Record),
+		assigned: assigned,
+	}, nil
 }
 
-func (c *Client) Assigned() <-chan struct{} { return c.assigned }
-
-func (c *Client) Poll(ctx context.Context) ports.FetchBatch {
-	fetches := c.client.PollFetches(ctx)
-	batch := ports.FetchBatch{}
-	if ctx.Err() != nil {
-		return batch
+func (c *Client) WaitForTopicAssignment(ctx context.Context, topic string) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case partitions := <-c.assigned:
+		if len(partitions[topic]) == 0 {
+			return fmt.Errorf("Kafka did not assign any partitions for topic %s", topic)
+		}
+		return nil
 	}
-	fetches.EachError(func(topic string, partition int32, err error) {
-		batch.Errors = append(batch.Errors, ports.FetchError{Topic: topic, Partition: partition, Err: err})
-	})
-	fetches.EachRecord(func(rec *kgo.Record) {
-		batch.Records = append(batch.Records, ports.NewRecord(
-			rec.Topic, rec.Partition, rec.Offset, append([]byte(nil), rec.Value...),
-			func() { c.client.MarkCommitRecords(rec) },
-		))
-	})
-	return batch
 }
 
-func (c *Client) Publish(ctx context.Context, topic string, key, value []byte, timeout time.Duration) error {
-	ctx, cancel := context.WithTimeout(ctx, timeout)
+func (c *Client) Publish(ctx context.Context, topic string, key string, payload any) error {
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+
+	record := &kgo.Record{
+		Topic: topic,
+		Key:   []byte(key),
+		Value: data,
+	}
+
+	produceCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
-	return c.client.ProduceSync(ctx, &kgo.Record{Topic: topic, Key: key, Value: value}).FirstErr()
+	return c.producer.ProduceSync(produceCtx, record).FirstErr()
 }
 
-func (c *Client) Ping(ctx context.Context) error { return c.client.Ping(ctx) }
+func (c *Client) StartConsuming(ctx context.Context) (<-chan *domain.Envelope, <-chan error) {
+	out := make(chan *domain.Envelope, 100)
+	errs := make(chan error, 10)
 
-func (c *Client) Close() { c.client.Close() }
+	go func() {
+		defer close(out)
+		defer close(errs)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				fetches := c.consumer.PollFetches(ctx)
+				if fetches.IsClientClosed() || ctx.Err() != nil {
+					return
+				}
+				fetches.EachError(func(t string, p int32, err error) {
+					select {
+					case errs <- fmt.Errorf("kafka fetch error topic %s partition %d: %w", t, p, err):
+					case <-ctx.Done():
+					}
+				})
+				fetches.EachRecord(func(r *kgo.Record) {
+					var env domain.Envelope
+					if err := json.Unmarshal(r.Value, &env); err != nil {
+						select {
+						case errs <- fmt.Errorf("unmarshal error on topic %s: %w", r.Topic, err):
+						case <-ctx.Done():
+						}
+						return
+					}
+					select {
+					case out <- &env:
+					case <-ctx.Done():
+					}
+				})
+			}
+		}
+	}()
+
+	return out, errs
+}
+
+func (c *Client) Close() {
+	c.producer.Close()
+	c.consumer.Close()
+}

@@ -1,0 +1,27 @@
+# Git и IDE
+.git
+.gitignore
+.idea/
+.vscode/
+
+# Секреты и локальные env
+.env
+.env.*
+!.env.example
+
+# Документация (не нужна внутри контейнера)
+docs/
+*.md
+README.md
+Readme.md
+
+# Сборочные артефакты
+server
+bin/
+vendor/
+*.log
+
+# Docker-файлы (не нужны внутри образа)
+Dockerfile
+docker-compose.yml
+.dockerignore

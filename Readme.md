@@ -1,26 +1,28 @@
 # Stockio
 
-Учебный серверный сервис для проверки торговой стратегии на потоке рыночных свечей. На текущем этапе Stockio регистрируется на платформе, принимает свечи и отправляет по одной безопасной рекомендации `HOLD` на каждую свечу. Реальные торговые заявки не отправляются. Momentum — предварительно выбранная стратегия для последующей работы, она пока не реализована.
+Stockio — учебный Go-сервис, который подключается к платформе через Kafka. Сейчас он проходит регистрацию, отправляет heartbeat примерно раз в 5 секунд, читает закрытые свечи и публикует одну рекомендацию `HOLD` на каждую полученную свечу. Стратегия Momentum пока не реализована. Реальные торговые заявки сервис не отправляет.
 
-## Автор и описание проекта
-
-Автор: **Max Burenko**.
-
-Границы сервиса, внешние взаимодействия, роли, допущения и инструменты описаны в [документе проекта](docs/project-description.md).
+Автор: **Max Burenko**. Подробности о границах и устройстве системы — в [описании проекта](docs/project-description.md). Диаграммы: [компоненты](docs/diagrams/components.mmd) и [контекст](docs/diagrams/context.puml).
 
 ## Требования
 
-- Go 1.23 или новее;
-- доступ к учебному Kafka broker;
-- Docker — только для контейнерного запуска.
+- Go 1.23 или новее для локального запуска;
+- Docker и Docker Compose для контейнерного запуска;
+- выданная преподавателем Kafka-пара, `CANDLE_TOPIC` и учебный `GROUP_ID`.
 
 ## Настройка
 
-Скопируйте `.env.example` в `.env` и задайте выданные преподавателем значения. `KAFKA_USERNAME` — логин Kafka, `KAFKA_PASSWORD` — пароль Kafka; `SECRET_KEY` — ключ регистрации из той же пары, а не пароль. `GROUP_ID` — учебная группа в сообщениях, `KAFKA_GROUP_ID` — отдельное уникальное имя Kafka consumer group. Не коммитьте `.env`.
+Скопируйте `.env.example` в `.env` и заполните значения из платформы и от преподавателя. Не коммитьте `.env`: он исключен из Git и Docker build context.
 
-Укажите стабильные `ACCOUNT_ID`, `STRATEGY_ID`, `SERVICE_NAME`, а также согласованный `CANDLE_TOPIC`. Имена топиков протокола уже имеют значения по умолчанию. Сервис подключается по `SASL_SSL` и `SCRAM-SHA-256` к `omsu.7bits.it:9094`.
+`KAFKA_USERNAME` — ключ/логин Kafka, `KAFKA_PASSWORD` — секрет/пароль Kafka. В `ACCOUNT_SECRET_KEY` указывается именно ключ, совпадающий с логином, а не пароль. `GROUP_ID` — учебная группа; `KAFKA_GROUP_ID` — отдельный уникальный технический Kafka group ID. У каждого студента должен быть свой `KAFKA_GROUP_ID`.
 
-В zsh загрузите настройки и запустите приложение:
+`ACCOUNT_ID`, `ACCOUNT_NAME`, `GROUP_ID`, `STRATEGY_ID`, `STRATEGY_NAME` и `SERVICE_NAME` попадают в запрос регистрации. Сохраняйте идентификаторы при следующих запусках. `CANDLE_TOPIC` нужно согласовать с преподавателем: он должен соответствовать потоку, назначенному портфелю платформой. Изменение подписки сервиса само по себе не меняет тему портфеля.
+
+Настройки Kafka по умолчанию: брокер `omsu.7bits.it:9094`, `SASL_SSL`, `SCRAM-SHA-256`. Названия служебных тем имеют значения по умолчанию в коде; их можно переопределить переменными из `.env.example`.
+
+## Запуск локально
+
+В zsh загрузите `.env` в окружение и запустите сервис:
 
 ```bash
 set -a
@@ -29,52 +31,68 @@ set +a
 go run ./cmd/server
 ```
 
-Имена и описания с пробелами в `.env` заключайте в кавычки, например `ACCOUNT_NAME="Имя Фамилия"` и `STRATEGY_NAME="Stockio Momentum"`. Файл `.env` — shell-совместимый файл для приведенной команды загрузки.
-
-## Сборка и запуск
+Для проверки компиляции и запуска:
 
 ```bash
 go build ./...
 go run ./cmd/server
 ```
 
-Сервер проверки состояния слушает `HTTP_ADDR` (по умолчанию `:8080`). Для проверки:
+## Запуск в Docker
+
+В корне проекта:
+
+```bash
+docker compose up --build
+```
+
+Compose пересобирает образ, передает переменные из `.env` контейнеру и показывает его логи. Для отдельной сборки:
+
+```bash
+docker build -t stockio-momentum-strategy -f Dockerfile .
+docker run --rm --env-file .env -p 8080:8080 stockio-momentum-strategy
+```
+
+Остановить Compose можно через Ctrl+C, затем выполнить `docker compose down`.
+
+## Регистрация и обмен Kafka
+
+1. Клиент подписывается на свечи и темы результатов и ждёт назначения раздела `account.registration.result` (до 30 секунд).
+2. Он публикует `account.registration.request` и ждёт свой ответ `REGISTERED`, связанный с запросом через `causationId`.
+3. После подтверждения сервис публикует heartbeat в `account.service.heartbeat` примерно раз в 5 секунд.
+4. Для события `market.candle.closed` из `CANDLE_TOPIC` сервис публикует `strategy.recommendation.created` с `HOLD` и исходными `runId`, тикером, `sequenceNumber` и идентификатором свечи.
+5. Сервис также читает собственные `account.registration.result` и `strategy.recommendation.result`.
+
+Сообщения используют JSON-конверт версии `1.0`. Kafka-пароль передается только при подключении и не включается в события. В логах успешная обработка свечи выглядит как `published HOLD recommendation` с тикером и номером свечи. Подробные цены свечи текущая версия в лог не выводит.
+
+Чтобы следить за логами:
+
+```bash
+docker compose logs -f momentum-strategy
+```
+
+Если регистрации достаточно, но нет сообщений `published HOLD recommendation`, проверьте, идет ли активный прогон на платформе и совпадает ли `CANDLE_TOPIC` с темой, которую преподаватель назначил портфелю.
+
+## HTTP health
+
+Сервис слушает `HTTP_PORT` (по умолчанию `:8080`). Проверка доступна без авторизации:
 
 ```bash
 curl http://localhost:8080/health
 ```
 
-`/health` не требует авторизации и возвращает `status`, `service`, `version` и объект `components`. Недоступность Kafka отражается как `DEGRADED`; временный сбой брокера не должен завершать процесс.
+Endpoint возвращает JSON со статусом процесса, именем сервиса, версией и компонентами. Это базовая проверка HTTP-доступности; статус Kafka не является активной проверкой соединения. В текущей заглушке `database` отмечена как `DOWN`, потому что база данных не используется.
 
-При остановке через Ctrl+C приложение корректно завершает HTTP сервер и Kafka клиент.
-
-## Docker
-
-```bash
-docker build -t stockio -f deploy/Dockerfile .
-docker run --rm --env-file .env -p 8080:8080 stockio
-```
-
-## Kafka обмен
-
-После назначения раздела темы `account.registration.result` приложение отправляет `account.registration.request` и ждёт собственное подтверждение `REGISTERED`. Затем оно отправляет heartbeat примерно раз в 5 секунд, читает `market.candle.closed` из `CANDLE_TOPIC`, публикует `strategy.recommendation.created` со значением `HOLD` и читает `strategy.recommendation.result`. Рекомендация содержит идентификаторы, `runId`, тикер, номер среза и ссылку на исходную свечу. Идентификаторы сервиса должны сохраняться между запусками.
-
-Подробные примеры протокола приведены в документации платформы; настройки выдаёт преподаватель. План задач ведётся в системе управления задачами курса — ссылка не включена, так как адрес проекта в этой среде не предоставлен.
-
-## Структура
+## Структура проекта
 
 ```text
-cmd/server/             запуск процесса и сборка компонентов
-internal/domain/strategy/               доменные сигналы
-internal/application/service/           регистрация, свечи и heartbeat
-internal/application/ports/             порты брокера и health состояния
-internal/application/contracts/         модели событий платформы
-internal/adapters/kafka/                Kafka клиент
-internal/adapters/http/health/          HTTP health сервер
-internal/adapters/config/               переменные окружения
-internal/adapters/logging/              структурированные журналы
-docs/project-description.md
-docs/diagrams/
+cmd/server/                    точка сборки и запуска приложения
+internal/config/               загрузка и проверка переменных окружения
+internal/domain/                конверты и модели событий платформы
+internal/ports/                 интерфейсы публикации и чтения Kafka
+internal/usecases/              регистрация, heartbeat, обработка свечей
+internal/adapters/kafka/         Kafka producer и consumer на franz-go
+internal/adapters/http/          HTTP endpoint /health
+docs/project-description.md      актуальное описание архитектуры и поведения
+docs/diagrams/                  контекстная и компонентная диаграммы
 ```
-
-`cmd/server` — точка сборки приложения. Use case зависит от интерфейсов из `application/ports`; Kafka и health adapters реализуют эти интерфейсы. Поэтому замена брокера или HTTP реализации не требует менять сценарий регистрации и обработки свечей.
